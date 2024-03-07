@@ -36,7 +36,6 @@ public class LeaderApplication {
 
         @Override
         public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
-
             var mcs = MemberCategory.values();
             hints.reflection().registerType(MessageChannelPartitionHandler.class, mcs);
             hints.serialization().registerType(StepExecutionRequest.class);
