@@ -2,26 +2,46 @@ package bootiful.batch.leader;
 
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.support.converter.SimpleMessageConverter;
+import org.springframework.aot.hint.MemberCategory;
+import org.springframework.aot.hint.RuntimeHints;
+import org.springframework.aot.hint.RuntimeHintsRegistrar;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.partition.support.SimplePartitioner;
 import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.integration.partition.MessageChannelPartitionHandler;
 import org.springframework.batch.integration.partition.RemotePartitioningManagerStepBuilder;
+import org.springframework.batch.integration.partition.StepExecutionRequest;
 import org.springframework.batch.item.ExecutionContext;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.integration.amqp.dsl.Amqp;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.dsl.IntegrationFlow;
 
 import java.util.Map;
 
+@ImportRuntimeHints(LeaderApplication.Hints.class)
 @SpringBootApplication
-class LeaderApplication {
+public class LeaderApplication {
+
+    static class Hints implements RuntimeHintsRegistrar {
+
+        @Override
+        public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+
+            var mcs = MemberCategory.values();
+            hints.reflection().registerType(MessageChannelPartitionHandler.class, mcs);
+            hints.serialization().registerType(StepExecutionRequest.class);
+        }
+    }
 
     public static void main(String[] args) {
         SpringApplication.run(LeaderApplication.class, args);
@@ -69,8 +89,12 @@ class LeaderConfiguration {
 
     @Bean
     IntegrationFlow inboundFlow(ConnectionFactory connectionFactory) {
+
+        var simpleMessageConverter = new SimpleMessageConverter();
+        simpleMessageConverter.addAllowedListPatterns("*");
+
         return IntegrationFlow
-                .from(Amqp.inboundAdapter(connectionFactory, RabbitConfiguration.REPLIES))
+                .from(Amqp.inboundAdapter(connectionFactory, RabbitConfiguration.REPLIES).messageConverter(simpleMessageConverter))
                 .channel(replies())
                 .get();
     }
@@ -87,7 +111,10 @@ class LeaderConfiguration {
 
     @Bean
     Job remotePartitioningJob(JobRepository jobRepository) {
-        return new JobBuilder("remotePartitioningJob", jobRepository).start(managerStep()).build();
+        return new JobBuilder("remotePartitioningJob", jobRepository)//
+                .incrementer(new RunIdIncrementer())//
+                .start(managerStep())//
+                .build();
     }
 }
 

@@ -2,12 +2,18 @@ package bootiful.batch.worker;
 
 import org.springframework.amqp.core.AmqpTemplate;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.support.converter.SimpleMessageConverter;
+import org.springframework.aot.hint.MemberCategory;
+import org.springframework.aot.hint.RuntimeHints;
+import org.springframework.aot.hint.RuntimeHintsRegistrar;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.explore.JobExplorer;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.integration.partition.RemotePartitioningWorkerStepBuilder;
+import org.springframework.batch.integration.partition.StepExecutionRequest;
+import org.springframework.batch.integration.partition.StepExecutionRequestHandler;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -16,13 +22,25 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.integration.amqp.dsl.Amqp;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.transaction.PlatformTransactionManager;
 
 @SpringBootApplication
-class WorkerApplication {
+@ImportRuntimeHints(WorkerApplication.Hints.class)
+public class WorkerApplication {
+
+    static class Hints implements RuntimeHintsRegistrar {
+
+        @Override
+        public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+            var mcs = MemberCategory.values();
+            hints.reflection().registerType(StepExecutionRequestHandler.class, mcs);
+            hints.serialization().registerType(StepExecutionRequest.class);
+        }
+    }
 
     public static void main(String[] args) {
         SpringApplication.run(WorkerApplication.class, args);
@@ -61,7 +79,15 @@ class WorkerConfiguration {
 
     @Bean
     IntegrationFlow inboundFlow(ConnectionFactory connectionFactory) {
-        return IntegrationFlow.from(Amqp.inboundAdapter(connectionFactory, RabbitConfiguration.REQUESTS))
+
+        var simpleMessageConverter = new SimpleMessageConverter();
+        simpleMessageConverter.addAllowedListPatterns("*");
+
+
+        return IntegrationFlow
+                .from(Amqp
+                        .inboundAdapter(connectionFactory, RabbitConfiguration.REQUESTS)
+                        .messageConverter(simpleMessageConverter))
                 .channel(requests())
                 .get();
     }
